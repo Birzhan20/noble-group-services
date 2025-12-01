@@ -1,6 +1,6 @@
 package models
 
-// Order represents a customer order.
+// Order represents a placed order.
 type Order struct {
 	ID          string `json:"id"`
 	OrderNumber string `json:"orderNumber"`

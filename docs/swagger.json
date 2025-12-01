@@ -1,26 +1,12 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "This is a sample server for a fake e-commerce store.",
-        "title": "Noble API",
-        "termsOfService": "http://swagger.io/terms/",
-        "contact": {
-            "name": "API Support",
-            "url": "http://www.swagger.io/support",
-            "email": "support@swagger.io"
-        },
-        "license": {
-            "name": "Apache 2.0",
-            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
-        },
-        "version": "1.0"
+        "contact": {}
     },
-    "host": "localhost:3000",
-    "basePath": "/api/v1",
     "paths": {
         "/cart": {
             "get": {
-                "description": "Get the current user's cart. A session ID is created if one is not provided.",
+                "description": "Get the current cart, add an item, or clear the cart.",
                 "consumes": [
                     "application/json"
                 ],
@@ -30,18 +16,48 @@
                 "tags": [
                     "cart"
                 ],
-                "summary": "Get the current user's cart",
+                "summary": "Get or update the cart",
+                "parameters": [
+                    {
+                        "description": "Add to cart request",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "productId": {
+                                    "type": "string"
+                                },
+                                "quantity": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.Cart"
+                            "$ref": "#/definitions/crud.CartResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
             },
             "post": {
-                "description": "Get the current user's cart. A session ID is created if one is not provided.",
+                "description": "Get the current cart, add an item, or clear the cart.",
                 "consumes": [
                     "application/json"
                 ],
@@ -51,18 +67,48 @@
                 "tags": [
                     "cart"
                 ],
-                "summary": "Get the current user's cart",
+                "summary": "Get or update the cart",
+                "parameters": [
+                    {
+                        "description": "Add to cart request",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "productId": {
+                                    "type": "string"
+                                },
+                                "quantity": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.Cart"
+                            "$ref": "#/definitions/crud.CartResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
             },
             "delete": {
-                "description": "Get the current user's cart. A session ID is created if one is not provided.",
+                "description": "Get the current cart, add an item, or clear the cart.",
                 "consumes": [
                     "application/json"
                 ],
@@ -72,18 +118,48 @@
                 "tags": [
                     "cart"
                 ],
-                "summary": "Get the current user's cart",
+                "summary": "Get or update the cart",
+                "parameters": [
+                    {
+                        "description": "Add to cart request",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "productId": {
+                                    "type": "string"
+                                },
+                                "quantity": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.Cart"
+                            "$ref": "#/definitions/crud.CartResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
             }
         },
-        "/cart/{id}": {
+        "/cart/{productId}": {
             "delete": {
                 "description": "Update the quantity of an item or delete it from the cart",
                 "consumes": [
@@ -100,17 +176,21 @@
                     {
                         "type": "string",
                         "description": "Product ID",
-                        "name": "id",
+                        "name": "productId",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "New quantity for the item",
-                        "name": "quantity",
+                        "description": "Update quantity request",
+                        "name": "body",
                         "in": "body",
-                        "required": true,
                         "schema": {
-                            "type": "integer"
+                            "type": "object",
+                            "properties": {
+                                "quantity": {
+                                    "type": "integer"
+                                }
+                            }
                         }
                     }
                 ],
@@ -118,7 +198,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.Cart"
+                            "$ref": "#/definitions/crud.CartResponse"
                         }
                     },
                     "400": {
@@ -151,17 +231,21 @@
                     {
                         "type": "string",
                         "description": "Product ID",
-                        "name": "id",
+                        "name": "productId",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "New quantity for the item",
-                        "name": "quantity",
+                        "description": "Update quantity request",
+                        "name": "body",
                         "in": "body",
-                        "required": true,
                         "schema": {
-                            "type": "integer"
+                            "type": "object",
+                            "properties": {
+                                "quantity": {
+                                    "type": "integer"
+                                }
+                            }
                         }
                     }
                 ],
@@ -169,7 +253,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.Cart"
+                            "$ref": "#/definitions/crud.CartResponse"
                         }
                     },
                     "400": {
@@ -207,7 +291,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/main.CheckoutForm"
+                            "$ref": "#/definitions/models.CheckoutForm"
                         }
                     }
                 ],
@@ -222,7 +306,7 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/crud.ValidationErrorResponse"
                         }
                     }
                 }
@@ -285,7 +369,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/main.Product"
+                                "$ref": "#/definitions/models.Product"
                             }
                         }
                     }
@@ -295,9 +379,6 @@
         "/products/categories": {
             "get": {
                 "description": "Get a list of all available product categories",
-                "consumes": [
-                    "application/json"
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -324,9 +405,6 @@
         "/products/manufacturers": {
             "get": {
                 "description": "Get a list of all available product manufacturers",
-                "consumes": [
-                    "application/json"
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -376,7 +454,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.Product"
+                            "$ref": "#/definitions/models.Product"
                         }
                     },
                     "404": {
@@ -390,7 +468,7 @@
         }
     },
     "definitions": {
-        "main.Cart": {
+        "crud.CartResponse": {
             "type": "object",
             "properties": {
                 "count": {
@@ -399,7 +477,7 @@
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/main.CartItem"
+                        "$ref": "#/definitions/models.CartItem"
                     }
                 },
                 "total": {
@@ -407,7 +485,32 @@
                 }
             }
         },
-        "main.CartItem": {
+        "crud.ValidationErrorDetail": {
+            "type": "object",
+            "properties": {
+                "field": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "crud.ValidationErrorResponse": {
+            "type": "object",
+            "properties": {
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/crud.ValidationErrorDetail"
+                    }
+                },
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.CartItem": {
             "type": "object",
             "properties": {
                 "availability": {
@@ -460,7 +563,7 @@
                 }
             }
         },
-        "main.CheckoutForm": {
+        "models.CheckoutForm": {
             "type": "object",
             "properties": {
                 "address": {
@@ -489,7 +592,7 @@
                 }
             }
         },
-        "main.Product": {
+        "models.Product": {
             "type": "object",
             "properties": {
                 "availability": {

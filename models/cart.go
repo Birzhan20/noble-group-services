@@ -1,21 +1,21 @@
 package models
 
-// Cart represents a shopping cart.
+// Cart represents a user's shopping cart.
 type Cart struct {
 	Items      []CartItem `json:"items"`
 	Total      int        `json:"total"`
-	Discount   int        `json:"discount"`
+	Count      int        `json:"count"`
 	FinalTotal int        `json:"finalTotal"`
 }
 
-// CalculateTotals calculates the total, discount, and final total for the cart.
+// CalculateTotals calculates the total price and item count.
 func (c *Cart) CalculateTotals() {
-	c.Total = 0
+	var total, count int
 	for _, item := range c.Items {
-		c.Total += item.Price * item.Quantity
+		total += item.Price * item.Quantity
+		count += item.Quantity
 	}
-
-	// Placeholder for discount logic
-	c.Discount = 0
-	c.FinalTotal = c.Total - c.Discount
+	c.Total = total
+	c.FinalTotal = total
+	c.Count = count
 }
