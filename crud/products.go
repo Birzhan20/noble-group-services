@@ -2,23 +2,20 @@ package crud
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/core"
 	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/models"
+	"github.com/lib/pq"
 )
 
-// Using a map for mock product data
-var products = map[string]models.Product{
-	"1": {ID: "1", Name: "Респиратор 3M 7502", Category: "Респираторы", Manufacturer: "3M", Availability: "in-stock", Price: 12500, Stock: 100, Rating: 4.8, Reviews: 124, SKU: "3M-7502", Image: "https://noble-group.vercel.app/images/product1.jpg"},
-	"2": {ID: "2", Name: "Перчатки Ansell HyFlex", Category: "Перчатки", Manufacturer: "Ansell", Availability: "in-stock", Price: 5000, Stock: 200, Rating: 4.5, Reviews: 80, SKU: "AN-11-800", Image: "https://noble-group.vercel.app/images/product2.jpg"},
-	"3": {ID: "3", Name: "Каска MSA V-Gard", Category: "Каски", Manufacturer: "MSA Safety", Availability: "pre-order", Price: 8000, Stock: 0, Rating: 4.7, Reviews: 50, SKU: "MSA-VGARD", Image: "https://noble-group.vercel.app/images/product3.jpg"},
-	"4": {ID: "4", Name: "Очки Uvex Skyper", Category: "Очки", Manufacturer: "Uvex", Availability: "in-stock", Price: 3500, Stock: 150, Rating: 4.6, Reviews: 95, SKU: "UV-9195", Image: "https://noble-group.vercel.app/images/product4.jpg"},
-	"5": {ID: "5", Name: "Костюм Tyvek Classic", Category: "Спецодежда", Manufacturer: "Tyvek", Availability: "in-stock", Price: 15000, Stock: 50, Rating: 4.9, Reviews: 200, SKU: "TY-CLASSIC", Image: "https://noble-group.vercel.app/images/product5.jpg"},
-}
-
-// ProductsHandler handles product-related requests.
+// ProductsHandler handles requests to list products.
+// It supports filtering by category, manufacturer, search term, and availability.
+// It also supports pagination.
+//
 // @Summary Get a list of products
 // @Description Get a list of products with optional filters
 // @Tags products
@@ -34,61 +31,94 @@ var products = map[string]models.Product{
 // @Router /products [get]
 func ProductsHandler(w http.ResponseWriter, r *http.Request) {
 	productsChan := make(chan []models.Product)
+	errChan := make(chan error)
 
 	go func() {
 		query := r.URL.Query()
 		category := query.Get("category")
 		manufacturer := query.Get("manufacturer")
-		search := query.Get("search")
+		search := strings.ToLower(query.Get("search"))
 		inStockOnly := query.Get("inStockOnly") == "true"
-
-		var filteredProducts []models.Product
-
-		for _, p := range products {
-			if category != "" && p.Category != category {
-				continue
-			}
-			if manufacturer != "" && p.Manufacturer != manufacturer {
-				continue
-			}
-			if search != "" && !strings.Contains(strings.ToLower(p.Name), strings.ToLower(search)) {
-				continue
-			}
-			if inStockOnly && p.Availability != "in-stock" {
-				continue
-			}
-			filteredProducts = append(filteredProducts, p)
-		}
-
-		// Pagination
 		page, _ := strconv.Atoi(query.Get("page"))
+		limit, _ := strconv.Atoi(query.Get("limit"))
+
 		if page < 1 {
 			page = 1
 		}
-		limit, _ := strconv.Atoi(query.Get("limit"))
 		if limit <= 0 {
 			limit = 20
 		}
-		startIndex := (page - 1) * limit
-		endIndex := page * limit
-		if startIndex >= len(filteredProducts) {
-			productsChan <- []models.Product{}
+		offset := (page - 1) * limit
+
+		sqlQuery := `SELECT id, name, category, manufacturer, availability, price, old_price, description, features, image, stock, rating, reviews, sku FROM products WHERE 1=1`
+		var args []interface{}
+		argCount := 1
+
+		if category != "" {
+			sqlQuery += fmt.Sprintf(" AND category = $%d", argCount)
+			args = append(args, category)
+			argCount++
+		}
+		if manufacturer != "" {
+			sqlQuery += fmt.Sprintf(" AND manufacturer = $%d", argCount)
+			args = append(args, manufacturer)
+			argCount++
+		}
+		if search != "" {
+			sqlQuery += fmt.Sprintf(" AND LOWER(name) LIKE $%d", argCount)
+			args = append(args, "%"+search+"%")
+			argCount++
+		}
+		if inStockOnly {
+			sqlQuery += fmt.Sprintf(" AND availability = 'in-stock'")
+		}
+
+		sqlQuery += fmt.Sprintf(" ORDER BY id LIMIT $%d OFFSET $%d", argCount, argCount+1)
+		args = append(args, limit, offset)
+
+		rows, err := core.DB.Query(sqlQuery, args...)
+		if err != nil {
+			errChan <- err
 			return
 		}
-		if endIndex > len(filteredProducts) {
-			endIndex = len(filteredProducts)
+		defer rows.Close()
+
+		var products []models.Product
+		for rows.Next() {
+			var p models.Product
+			var features []string
+			// Using pq.Array to scan features array
+			err := rows.Scan(
+				&p.ID, &p.Name, &p.Category, &p.Manufacturer, &p.Availability, &p.Price, &p.OldPrice,
+				&p.Description, pq.Array(&features), &p.Image, &p.Stock, &p.Rating, &p.Reviews, &p.SKU,
+			)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			p.Features = features
+			products = append(products, p)
 		}
 
-		productsChan <- filteredProducts[startIndex:endIndex]
+		// Ensure we send an empty slice, not nil
+		if products == nil {
+			products = []models.Product{}
+		}
+
+		productsChan <- products
 	}()
 
-	productList := <-productsChan
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(productList)
+	select {
+	case products := <-productsChan:
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(products)
+	case err := <-errChan:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // ProductByIDHandler handles requests for a single product by its ID.
+//
 // @Summary Get a single product by its ID
 // @Description Get a single product by its ID
 // @Tags products
@@ -101,24 +131,36 @@ func ProductsHandler(w http.ResponseWriter, r *http.Request) {
 func ProductByIDHandler(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/products/")
 
-	productChan := make(chan models.Product)
+	productChan := make(chan *models.Product)
+	errChan := make(chan error)
 
 	go func() {
-		product, ok := products[id]
-		if !ok {
-			productChan <- models.Product{}
+		var p models.Product
+		var features []string
+		err := core.DB.QueryRow(`
+			SELECT id, name, category, manufacturer, availability, price, old_price, description, features, image, stock, rating, reviews, sku
+			FROM products WHERE id = $1
+		`, id).Scan(
+			&p.ID, &p.Name, &p.Category, &p.Manufacturer, &p.Availability, &p.Price, &p.OldPrice,
+			&p.Description, pq.Array(&features), &p.Image, &p.Stock, &p.Rating, &p.Reviews, &p.SKU,
+		)
+		if err != nil {
+			errChan <- err
 			return
 		}
-		productChan <- product
+		p.Features = features
+		productChan <- &p
 	}()
 
-	product := <-productChan
-
-	if product.ID == "" {
-		http.NotFound(w, r)
-		return
+	select {
+	case p := <-productChan:
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(p)
+	case err := <-errChan:
+		if strings.Contains(err.Error(), "no rows") {
+			http.NotFound(w, r)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(product)
 }

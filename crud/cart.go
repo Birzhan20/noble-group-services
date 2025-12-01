@@ -2,16 +2,16 @@ package crud
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 
+	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/core"
 	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/models"
 )
-
-// Using a map for mock cart data
-var carts = make(map[string]*models.Cart)
 
 // CartResponse represents the JSON response for the cart.
 type CartResponse struct {
@@ -40,11 +40,9 @@ func CartHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Session-ID", sessionID)
 	}
 
-	cart := getCart(sessionID)
-
 	switch r.Method {
 	case http.MethodGet:
-		// Handled by returning the cart at the end
+		// Just fetching, handled at end
 	case http.MethodPost:
 		var reqBody struct {
 			ProductID string `json:"productId"`
@@ -60,34 +58,48 @@ func CartHandler(w http.ResponseWriter, r *http.Request) {
 			quantity = *reqBody.Quantity
 		}
 
-		product, ok := products[reqBody.ProductID]
-		if !ok {
+		// Check if product exists using DB
+		var exists bool
+		err := core.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)", reqBody.ProductID).Scan(&exists)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !exists {
 			http.Error(w, "Product not found", http.StatusNotFound)
 			return
 		}
 
-		var found bool
-		for i := range cart.Items {
-			if cart.Items[i].ID == reqBody.ProductID {
-				cart.Items[i].Quantity += quantity
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			cart.Items = append(cart.Items, models.CartItem{Product: product, Quantity: quantity})
+		// Insert or Update logic:
+		// ON CONFLICT (session_id, product_id) DO UPDATE SET quantity = cart_items.quantity + excluded.quantity
+		_, err = core.DB.Exec(`
+			INSERT INTO cart_items (session_id, product_id, quantity)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (session_id, product_id)
+			DO UPDATE SET quantity = cart_items.quantity + EXCLUDED.quantity, updated_at = NOW()
+		`, sessionID, reqBody.ProductID, quantity)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 	case http.MethodDelete:
-		cart.Items = []models.CartItem{}
+		_, err := core.DB.Exec("DELETE FROM cart_items WHERE session_id = $1", sessionID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	cart.CalculateTotals()
-	updateCart(sessionID, cart)
+	cart, err := getCartFromDB(sessionID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	response := CartResponse{
 		Items: cart.Items,
@@ -121,8 +133,6 @@ func CartItemHandler(w http.ResponseWriter, r *http.Request) {
 
 	productID := strings.TrimPrefix(r.URL.Path, "/api/v1/cart/")
 
-	cart := getCart(sessionID)
-
 	switch r.Method {
 	case http.MethodPatch:
 		var reqBody struct {
@@ -138,31 +148,33 @@ func CartItemHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var found bool
-		for i := range cart.Items {
-			if cart.Items[i].ID == productID {
-				cart.Items[i].Quantity = reqBody.Quantity
-				found = true
-				break
-			}
+		res, err := core.DB.Exec(`
+			UPDATE cart_items SET quantity = $1, updated_at = NOW()
+			WHERE session_id = $2 AND product_id = $3
+		`, reqBody.Quantity, sessionID, productID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
-		if !found {
+		rowsAffected, _ := res.RowsAffected()
+		if rowsAffected == 0 {
 			http.Error(w, "Product not in cart", http.StatusNotFound)
 			return
 		}
 
 	case http.MethodDelete:
-		var found bool
-		for i, item := range cart.Items {
-			if item.ID == productID {
-				cart.Items = append(cart.Items[:i], cart.Items[i+1:]...)
-				found = true
-				break
-			}
+		res, err := core.DB.Exec(`
+			DELETE FROM cart_items
+			WHERE session_id = $1 AND product_id = $2
+		`, sessionID, productID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
-		if !found {
+		rowsAffected, _ := res.RowsAffected()
+		if rowsAffected == 0 {
 			http.Error(w, "Product not in cart", http.StatusNotFound)
 			return
 		}
@@ -172,8 +184,11 @@ func CartItemHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cart.CalculateTotals()
-	updateCart(sessionID, cart)
+	cart, err := getCartFromDB(sessionID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	response := CartResponse{
 		Items: cart.Items,
@@ -185,15 +200,44 @@ func CartItemHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// getCart retrieves the cart for a given session ID.
-func getCart(sessionID string) *models.Cart {
-	if _, ok := carts[sessionID]; !ok {
-		carts[sessionID] = &models.Cart{}
+// getCartFromDB retrieves the cart for a given session ID from the database.
+func getCartFromDB(sessionID string) (*models.Cart, error) {
+	// Join cart_items with products to get full product details
+	rows, err := core.DB.Query(`
+		SELECT
+			p.id, p.name, p.category, p.manufacturer, p.availability, p.price, p.old_price,
+			p.description, p.features, p.image, p.stock, p.rating, p.reviews, p.sku,
+			ci.quantity
+		FROM cart_items ci
+		JOIN products p ON ci.product_id = p.id
+		WHERE ci.session_id = $1
+	`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("query cart items: %w", err)
 	}
-	return carts[sessionID]
-}
+	defer rows.Close()
 
-// updateCart updates the cart for a given session ID.
-func updateCart(sessionID string, cart *models.Cart) {
-	carts[sessionID] = cart
+	cart := &models.Cart{
+		Items: []models.CartItem{},
+	}
+
+	for rows.Next() {
+		var p models.Product
+		var features []string
+		var quantity int
+
+		err := rows.Scan(
+			&p.ID, &p.Name, &p.Category, &p.Manufacturer, &p.Availability, &p.Price, &p.OldPrice,
+			&p.Description, pq.Array(&features), &p.Image, &p.Stock, &p.Rating, &p.Reviews, &p.SKU,
+			&quantity,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan cart item: %w", err)
+		}
+		p.Features = features
+		cart.Items = append(cart.Items, models.CartItem{Product: p, Quantity: quantity})
+	}
+
+	cart.CalculateTotals()
+	return cart, nil
 }
