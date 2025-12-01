@@ -1,0 +1,362 @@
+basePath: /api/v1
+definitions:
+  main.Cart:
+    properties:
+      count:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/main.CartItem'
+        type: array
+      total:
+        type: integer
+    type: object
+  main.CartItem:
+    properties:
+      availability:
+        type: string
+      category:
+        type: string
+      description:
+        type: string
+      features:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      image:
+        type: string
+      manufacturer:
+        type: string
+      name:
+        type: string
+      oldPrice:
+        type: integer
+      price:
+        type: integer
+      quantity:
+        type: integer
+      rating:
+        type: number
+      reviews:
+        type: integer
+      sku:
+        type: string
+      stock:
+        type: integer
+    type: object
+  main.CheckoutForm:
+    properties:
+      address:
+        type: string
+      bin:
+        type: string
+      comment:
+        type: string
+      companyName:
+        type: string
+      customerType:
+        type: string
+      email:
+        type: string
+      name:
+        type: string
+      phone:
+        type: string
+    type: object
+  main.Product:
+    properties:
+      availability:
+        type: string
+      category:
+        type: string
+      description:
+        type: string
+      features:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      image:
+        type: string
+      manufacturer:
+        type: string
+      name:
+        type: string
+      oldPrice:
+        type: integer
+      price:
+        type: integer
+      rating:
+        type: number
+      reviews:
+        type: integer
+      sku:
+        type: string
+      stock:
+        type: integer
+    type: object
+host: localhost:3000
+info:
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: This is a sample server for a fake e-commerce store.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: Noble API
+  version: "1.0"
+paths:
+  /cart:
+    delete:
+      consumes:
+      - application/json
+      description: Get the current user's cart. A session ID is created if one is
+        not provided.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Cart'
+      summary: Get the current user's cart
+      tags:
+      - cart
+    get:
+      consumes:
+      - application/json
+      description: Get the current user's cart. A session ID is created if one is
+        not provided.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Cart'
+      summary: Get the current user's cart
+      tags:
+      - cart
+    post:
+      consumes:
+      - application/json
+      description: Get the current user's cart. A session ID is created if one is
+        not provided.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Cart'
+      summary: Get the current user's cart
+      tags:
+      - cart
+  /cart/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Update the quantity of an item or delete it from the cart
+      parameters:
+      - description: Product ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New quantity for the item
+        in: body
+        name: quantity
+        required: true
+        schema:
+          type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Cart'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            type: string
+      summary: Update or delete an item in the cart
+      tags:
+      - cart
+    patch:
+      consumes:
+      - application/json
+      description: Update the quantity of an item or delete it from the cart
+      parameters:
+      - description: Product ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New quantity for the item
+        in: body
+        name: quantity
+        required: true
+        schema:
+          type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Cart'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            type: string
+      summary: Update or delete an item in the cart
+      tags:
+      - cart
+  /orders:
+    post:
+      consumes:
+      - application/json
+      description: Place a new order with the items in the cart
+      parameters:
+      - description: Checkout Form
+        in: body
+        name: checkoutForm
+        required: true
+        schema:
+          $ref: '#/definitions/main.CheckoutForm'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+      summary: Place a new order
+      tags:
+      - orders
+  /products:
+    get:
+      consumes:
+      - application/json
+      description: Get a list of products with optional filters
+      parameters:
+      - description: Category to filter by
+        in: query
+        name: category
+        type: string
+      - description: Manufacturer to filter by
+        in: query
+        name: manufacturer
+        type: string
+      - description: Search term to filter by name
+        in: query
+        name: search
+        type: string
+      - description: Filter for products in stock only
+        in: query
+        name: inStockOnly
+        type: boolean
+      - description: Page number for pagination
+        in: query
+        name: page
+        type: integer
+      - description: Number of items per page
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.Product'
+            type: array
+      summary: Get a list of products
+      tags:
+      - products
+  /products/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Get a single product by its ID
+      parameters:
+      - description: Product ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Product'
+        "404":
+          description: Not Found
+          schema:
+            type: string
+      summary: Get a single product by its ID
+      tags:
+      - products
+  /products/categories:
+    get:
+      consumes:
+      - application/json
+      description: Get a list of all available product categories
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                type: string
+              type: array
+            type: object
+      summary: Get a list of product categories
+      tags:
+      - products
+  /products/manufacturers:
+    get:
+      consumes:
+      - application/json
+      description: Get a list of all available product manufacturers
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                type: string
+              type: array
+            type: object
+      summary: Get a list of product manufacturers
+      tags:
+      - products
+swagger: "2.0"
