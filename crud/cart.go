@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -12,6 +13,9 @@ import (
 
 // Using a map for mock cart data
 var carts = make(map[string]*models.Cart)
+
+// cartMu protects access to the carts map AND the individual cart structs.
+var cartMu sync.RWMutex
 
 // CartResponse represents the JSON response for the cart.
 type CartResponse struct {
@@ -40,7 +44,11 @@ func CartHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Session-ID", sessionID)
 	}
 
-	cart := getCart(sessionID)
+	// Lock the entire operation to ensure thread safety
+	cartMu.Lock()
+	defer cartMu.Unlock()
+
+	cart := getCartUnsafe(sessionID)
 
 	switch r.Method {
 	case http.MethodGet:
@@ -60,6 +68,8 @@ func CartHandler(w http.ResponseWriter, r *http.Request) {
 			quantity = *reqBody.Quantity
 		}
 
+		// 'products' map is read-only safe, so no lock needed for it
+		// but we are holding the global lock anyway.
 		product, ok := products[reqBody.ProductID]
 		if !ok {
 			http.Error(w, "Product not found", http.StatusNotFound)
@@ -87,7 +97,6 @@ func CartHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cart.CalculateTotals()
-	updateCart(sessionID, cart)
 
 	response := CartResponse{
 		Items: cart.Items,
@@ -121,7 +130,10 @@ func CartItemHandler(w http.ResponseWriter, r *http.Request) {
 
 	productID := strings.TrimPrefix(r.URL.Path, "/api/v1/cart/")
 
-	cart := getCart(sessionID)
+	cartMu.Lock()
+	defer cartMu.Unlock()
+
+	cart := getCartUnsafe(sessionID)
 
 	switch r.Method {
 	case http.MethodPatch:
@@ -173,7 +185,6 @@ func CartItemHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cart.CalculateTotals()
-	updateCart(sessionID, cart)
 
 	response := CartResponse{
 		Items: cart.Items,
@@ -187,13 +198,18 @@ func CartItemHandler(w http.ResponseWriter, r *http.Request) {
 
 // getCart retrieves the cart for a given session ID.
 func getCart(sessionID string) *models.Cart {
-	if _, ok := carts[sessionID]; !ok {
-		carts[sessionID] = &models.Cart{}
-	}
-	return carts[sessionID]
+	cartMu.Lock()
+	defer cartMu.Unlock()
+	return getCartUnsafe(sessionID)
 }
 
-// updateCart updates the cart for a given session ID.
-func updateCart(sessionID string, cart *models.Cart) {
-	carts[sessionID] = cart
+// getCartUnsafe retrieves the cart without locking. Caller must hold cartMu.
+func getCartUnsafe(sessionID string) *models.Cart {
+	if _, ok := carts[sessionID]; !ok {
+		// Initialize Items as empty slice to ensure JSON is [] not null
+		carts[sessionID] = &models.Cart{
+			Items: []models.CartItem{},
+		}
+	}
+	return carts[sessionID]
 }
