@@ -1,17 +1,16 @@
-basePath: /api/v1
 definitions:
-  main.Cart:
+  crud.CartResponse:
     properties:
       count:
         type: integer
       items:
         items:
-          $ref: '#/definitions/main.CartItem'
+          $ref: '#/definitions/models.CartItem'
         type: array
       total:
         type: integer
     type: object
-  main.CartItem:
+  models.CartItem:
     properties:
       availability:
         type: string
@@ -46,7 +45,7 @@ definitions:
       stock:
         type: integer
     type: object
-  main.CheckoutForm:
+  models.CheckoutForm:
     properties:
       address:
         type: string
@@ -65,7 +64,7 @@ definitions:
       phone:
         type: string
     type: object
-  main.Product:
+  models.Product:
     properties:
       availability:
         type: string
@@ -98,67 +97,110 @@ definitions:
       stock:
         type: integer
     type: object
-host: localhost:3000
 info:
-  contact:
-    email: support@swagger.io
-    name: API Support
-    url: http://www.swagger.io/support
-  description: This is a sample server for a fake e-commerce store.
-  license:
-    name: Apache 2.0
-    url: http://www.apache.org/licenses/LICENSE-2.0.html
-  termsOfService: http://swagger.io/terms/
-  title: Noble API
-  version: "1.0"
+  contact: {}
 paths:
   /cart:
     delete:
       consumes:
       - application/json
-      description: Get the current user's cart. A session ID is created if one is
-        not provided.
+      description: Get the current cart, add an item, or clear the cart.
+      parameters:
+      - description: Add to cart request
+        in: body
+        name: body
+        schema:
+          properties:
+            productId:
+              type: string
+            quantity:
+              type: integer
+          type: object
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.Cart'
-      summary: Get the current user's cart
+            $ref: '#/definitions/crud.CartResponse'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            type: string
+      summary: Get or update the cart
       tags:
       - cart
     get:
       consumes:
       - application/json
-      description: Get the current user's cart. A session ID is created if one is
-        not provided.
+      description: Get the current cart, add an item, or clear the cart.
+      parameters:
+      - description: Add to cart request
+        in: body
+        name: body
+        schema:
+          properties:
+            productId:
+              type: string
+            quantity:
+              type: integer
+          type: object
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.Cart'
-      summary: Get the current user's cart
+            $ref: '#/definitions/crud.CartResponse'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            type: string
+      summary: Get or update the cart
       tags:
       - cart
     post:
       consumes:
       - application/json
-      description: Get the current user's cart. A session ID is created if one is
-        not provided.
+      description: Get the current cart, add an item, or clear the cart.
+      parameters:
+      - description: Add to cart request
+        in: body
+        name: body
+        schema:
+          properties:
+            productId:
+              type: string
+            quantity:
+              type: integer
+          type: object
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.Cart'
-      summary: Get the current user's cart
+            $ref: '#/definitions/crud.CartResponse'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            type: string
+      summary: Get or update the cart
       tags:
       - cart
-  /cart/{id}:
+  /cart/{productId}:
     delete:
       consumes:
       - application/json
@@ -166,22 +208,24 @@ paths:
       parameters:
       - description: Product ID
         in: path
-        name: id
+        name: productId
         required: true
         type: string
-      - description: New quantity for the item
+      - description: Update quantity request
         in: body
-        name: quantity
-        required: true
+        name: body
         schema:
-          type: integer
+          properties:
+            quantity:
+              type: integer
+          type: object
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.Cart'
+            $ref: '#/definitions/crud.CartResponse'
         "400":
           description: Bad Request
           schema:
@@ -200,22 +244,24 @@ paths:
       parameters:
       - description: Product ID
         in: path
-        name: id
+        name: productId
         required: true
         type: string
-      - description: New quantity for the item
+      - description: Update quantity request
         in: body
-        name: quantity
-        required: true
+        name: body
         schema:
-          type: integer
+          properties:
+            quantity:
+              type: integer
+          type: object
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.Cart'
+            $ref: '#/definitions/crud.CartResponse'
         "400":
           description: Bad Request
           schema:
@@ -238,7 +284,7 @@ paths:
         name: checkoutForm
         required: true
         schema:
-          $ref: '#/definitions/main.CheckoutForm'
+          $ref: '#/definitions/models.CheckoutForm'
       produces:
       - application/json
       responses:
@@ -291,7 +337,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/main.Product'
+              $ref: '#/definitions/models.Product'
             type: array
       summary: Get a list of products
       tags:
@@ -313,7 +359,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.Product'
+            $ref: '#/definitions/models.Product'
         "404":
           description: Not Found
           schema:
@@ -323,8 +369,6 @@ paths:
       - products
   /products/categories:
     get:
-      consumes:
-      - application/json
       description: Get a list of all available product categories
       produces:
       - application/json
@@ -342,8 +386,6 @@ paths:
       - products
   /products/manufacturers:
     get:
-      consumes:
-      - application/json
       description: Get a list of all available product manufacturers
       produces:
       - application/json

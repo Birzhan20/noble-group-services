@@ -9,6 +9,7 @@ import (
 )
 
 // SetupRoutes sets up the API routes.
+// It accepts a mux to register handlers.
 func SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/products", crud.ProductsHandler)
 	mux.HandleFunc("/api/v1/products/categories", crud.CategoriesHandler)

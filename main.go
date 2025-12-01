@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/api/v1"
 	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/core"
@@ -13,17 +14,22 @@ import (
 
 func main() {
 	// Initialize the database
-	// Replace with your actual database connection string
-	if err := core.InitDB("postgres://user:password@localhost/dbname?sslmode=disable"); err != nil {
-		log.Fatal(err)
+	// Read connection string from environment variable, fallback to default for local dev
+	connStr := os.Getenv("DATABASE_URL")
+	if connStr == "" {
+		connStr = "postgres://user:password@localhost/dbname?sslmode=disable"
+		log.Println("DATABASE_URL not set, using default connection string")
 	}
 
-	// Setup the API routes
-	v1.SetupRoutes()
+	if err := core.InitDB(connStr); err != nil {
+		log.Printf("Failed to connect to database: %v", err)
+	}
 
 	// Create a new ServeMux and apply the CORS middleware
 	mux := http.NewServeMux()
-	v1.SetupRoutes(mux) // Assuming SetupRoutes takes a mux
+
+	// Setup the API routes using the created mux
+	v1.SetupRoutes(mux)
 
 	httpserver := &http.Server{
 		Addr:    ":3000",

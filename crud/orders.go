@@ -12,6 +12,13 @@ import (
 	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/models"
 )
 
+// init initializes the random number generator.
+// Note: In Go 1.20+, the global random generator is automatically seeded,
+// but for compatibility and clarity we can seed it here once.
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 // OrdersHandler handles order-related requests.
 // @Summary Place a new order
 // @Description Place a new order with the items in the cart
@@ -34,7 +41,13 @@ func OrdersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cart := getCart(sessionID)
+	// We need to lock the cart while reading and clearing it.
+	cartMu.Lock()
+	defer cartMu.Unlock()
+
+	cart := getCartUnsafe(sessionID)
+
+	// Check if cart is empty
 	if len(cart.Items) == 0 {
 		http.Error(w, "Cart is empty", http.StatusBadRequest)
 		return
@@ -70,7 +83,7 @@ func OrdersHandler(w http.ResponseWriter, r *http.Request) {
 	// Clear the cart
 	cart.Items = []models.CartItem{}
 	cart.CalculateTotals()
-	updateCart(sessionID, cart)
+	// updateCart(sessionID, cart) // Not needed as we modified the pointer in place under lock
 
 	response := map[string]interface{}{
 		"success":     true,
@@ -87,6 +100,5 @@ func OrdersHandler(w http.ResponseWriter, r *http.Request) {
 // generateOrderNumber generates a unique order number.
 func generateOrderNumber() string {
 	// Generate a random 6-digit number
-	rand.Seed(time.Now().UnixNano())
 	return fmt.Sprintf("№%06d", rand.Intn(1000000))
 }
