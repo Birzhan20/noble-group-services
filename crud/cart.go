@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -12,6 +13,11 @@ import (
 
 // Using a map for mock cart data
 var carts = make(map[string]*models.Cart)
+
+// cartMu protects access to the carts map AND the individual cart structs.
+// For a high-concurrency production app, we would use per-cart locks,
+// but for a simple intern-friendly example, a global lock for all cart operations is safest and easiest to reason about.
+var cartMu sync.RWMutex
 
 // CartResponse represents the JSON response for the cart.
 type CartResponse struct {
@@ -40,7 +46,11 @@ func CartHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Session-ID", sessionID)
 	}
 
-	cart := getCart(sessionID)
+	// Lock the entire operation to ensure thread safety
+	cartMu.Lock()
+	defer cartMu.Unlock()
+
+	cart := getCartUnsafe(sessionID)
 
 	switch r.Method {
 	case http.MethodGet:
@@ -60,6 +70,8 @@ func CartHandler(w http.ResponseWriter, r *http.Request) {
 			quantity = *reqBody.Quantity
 		}
 
+		// 'products' map is read-only safe, so no lock needed for it
+		// but we are holding the global lock anyway.
 		product, ok := products[reqBody.ProductID]
 		if !ok {
 			http.Error(w, "Product not found", http.StatusNotFound)
@@ -87,7 +99,9 @@ func CartHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cart.CalculateTotals()
-	updateCart(sessionID, cart)
+	// updateCart is not needed because we are modifying the pointer directly, and map already holds it.
+	// But if we replaced the struct, we would need it. 'cart' is a pointer.
+	// So just modifying fields is enough.
 
 	response := CartResponse{
 		Items: cart.Items,
@@ -121,7 +135,10 @@ func CartItemHandler(w http.ResponseWriter, r *http.Request) {
 
 	productID := strings.TrimPrefix(r.URL.Path, "/api/v1/cart/")
 
-	cart := getCart(sessionID)
+	cartMu.Lock()
+	defer cartMu.Unlock()
+
+	cart := getCartUnsafe(sessionID)
 
 	switch r.Method {
 	case http.MethodPatch:
@@ -173,7 +190,6 @@ func CartItemHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cart.CalculateTotals()
-	updateCart(sessionID, cart)
 
 	response := CartResponse{
 		Items: cart.Items,
@@ -186,14 +202,27 @@ func CartItemHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // getCart retrieves the cart for a given session ID.
+// This version is exported for use in other handlers (like orders), but they should respect locking.
+// Actually, since this package handles the lock, we should export a thread-safe way or make OrdersHandler use the lock.
+// Since OrdersHandler is in this package, it can access `cartMu`.
 func getCart(sessionID string) *models.Cart {
+	cartMu.Lock()
+	defer cartMu.Unlock()
+	return getCartUnsafe(sessionID)
+}
+
+// getCartUnsafe retrieves the cart without locking. Caller must hold cartMu.
+func getCartUnsafe(sessionID string) *models.Cart {
 	if _, ok := carts[sessionID]; !ok {
 		carts[sessionID] = &models.Cart{}
 	}
 	return carts[sessionID]
 }
 
-// updateCart updates the cart for a given session ID.
+// updateCart is removed/internalized because we modify the pointer in place under lock.
+// For compatibility if needed:
 func updateCart(sessionID string, cart *models.Cart) {
+	cartMu.Lock()
+	defer cartMu.Unlock()
 	carts[sessionID] = cart
 }
