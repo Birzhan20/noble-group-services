@@ -582,10 +582,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "204": {
-                        "description": "No Content",
-                        "schema": {
-                            "type": "string"
-                        }
+                        "description": "No Content"
                     },
                     "404": {
                         "description": "Category not found",
@@ -1005,6 +1002,17 @@ const docTemplate = `{
                 }
             }
         },
+        "models.CartItemRequest": {
+            "type": "object",
+            "properties": {
+                "product_id": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "integer"
+                }
+            }
+        },
         "models.Category": {
             "type": "object",
             "properties": {
@@ -1034,8 +1042,19 @@ const docTemplate = `{
                 "bin": {
                     "type": "string"
                 },
+                "carts": {
+                    "description": "New field",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.CartItemRequest"
+                    }
+                },
                 "comment": {
                     "type": "string"
+                },
+                "company": {
+                    "description": "New field",
+                    "type": "boolean"
                 },
                 "companyName": {
                     "type": "string"

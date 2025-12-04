@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"noble-group-services/models"
+	"noble-group-services/services/smtp"
 )
 
 // ValidationErrorDetail represents a single field validation error.
@@ -58,22 +59,6 @@ func OrderItemHandler(w http.ResponseWriter, r *http.Request) {
 // @Failure 400 {object} ValidationErrorResponse
 // @Router /orders [post]
 func CreateOrder(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.Header.Get("X-Session-ID")
-	if sessionID == "" {
-		http.Error(w, "X-Session-ID header is required", http.StatusBadRequest)
-		return
-	}
-
-	cartMu.Lock()
-	defer cartMu.Unlock()
-
-	cart := getCartUnsafe(sessionID)
-
-	if len(cart.Items) == 0 {
-		http.Error(w, "Cart is empty", http.StatusBadRequest)
-		return
-	}
-
 	var form models.CheckoutForm
 	if err := json.NewDecoder(r.Body).Decode(&form); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -88,20 +73,13 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 		validationErrors = append(validationErrors, ValidationErrorDetail{Field: "name", Message: "Имя должно содержать минимум 2 символа"})
 	}
 
-	// Phone: min 10 digits, starts with +7, 8, or 7
-	// Remove non-digits first
+	// Phone: min 10 digits
 	phoneDigits := regexp.MustCompile(`\D`).ReplaceAllString(form.Phone, "")
 	if len(phoneDigits) < 10 {
 		validationErrors = append(validationErrors, ValidationErrorDetail{Field: "phone", Message: "Номер телефона должен содержать минимум 10 цифр"})
-	} else {
-		match, _ := regexp.MatchString(`^(\+7|8|7)`, form.Phone)
-		if !match {
-			validationErrors = append(validationErrors, ValidationErrorDetail{Field: "phone", Message: "Номер телефона должен начинаться с +7, 7 или 8"})
-		}
 	}
 
 	// Email: valid email
-	// Simple regex
 	emailRegex := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,4}$`)
 	if !emailRegex.MatchString(form.Email) {
 		validationErrors = append(validationErrors, ValidationErrorDetail{Field: "email", Message: "Некорректный e-mail"})
@@ -120,7 +98,6 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 		if form.BIN == nil {
 			validationErrors = append(validationErrors, ValidationErrorDetail{Field: "bin", Message: "БИН обязателен для юридических лиц"})
 		} else {
-			// BIN must be exactly 12 digits
 			binClean := regexp.MustCompile(`\D`).ReplaceAllString(*form.BIN, "")
 			if len(binClean) != 12 {
 				validationErrors = append(validationErrors, ValidationErrorDetail{Field: "bin", Message: "БИН должен содержать ровно 12 цифр"})
@@ -135,6 +112,49 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 			Error:   "VALIDATION_ERROR",
 			Details: validationErrors,
 		})
+		return
+	}
+
+	// Prepare Order Items
+	var orderItems []models.CartItem
+	var finalTotal int
+
+	if len(form.Carts) > 0 {
+		// Use items from request
+		for _, reqItem := range form.Carts {
+			var product models.Product
+			// We only need price and id for the order item, but let's fetch basic info
+			err := db.Get(&product, `SELECT id, price FROM products WHERE id = $1`, reqItem.ProductID)
+			if err != nil {
+				// Skip invalid products or handle error? Let's skip for now or return error
+				continue
+			}
+			finalTotal += product.Price * reqItem.Quantity
+			orderItems = append(orderItems, models.CartItem{
+				Product:  product,
+				Quantity: reqItem.Quantity,
+			})
+		}
+	} else {
+		// Fallback to session cart
+		sessionID := r.Header.Get("X-Session-ID")
+		if sessionID != "" {
+			cartMu.Lock()
+			cart := getCartUnsafe(sessionID)
+			// Copy items
+			orderItems = make([]models.CartItem, len(cart.Items))
+			copy(orderItems, cart.Items)
+			finalTotal = cart.FinalTotal
+
+			// Clear cart after use
+			cart.Items = []models.CartItem{}
+			cart.CalculateTotals()
+			cartMu.Unlock()
+		}
+	}
+
+	if len(orderItems) == 0 {
+		http.Error(w, "Order is empty", http.StatusBadRequest)
 		return
 	}
 
@@ -157,7 +177,7 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`,
 		orderID, orderNumber, form.Name, form.Phone, form.Email, form.Address,
-		form.CustomerType, form.CompanyName, form.BIN, form.Comment, cart.FinalTotal, "new", time.Now(),
+		form.CustomerType, form.CompanyName, form.BIN, form.Comment, finalTotal, "new", time.Now(),
 	)
 	if err != nil {
 		http.Error(w, "Failed to create order", http.StatusInternalServerError)
@@ -165,12 +185,12 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Insert Order Items
-	for _, item := range cart.Items {
+	for _, item := range orderItems {
 		itemID := uuid.New().String()
 		_, err = tx.Exec(`
 			INSERT INTO order_items (id, order_id, product_id, quantity, price)
 			VALUES ($1, $2, $3, $4, $5)
-		`, itemID, orderID, item.ID, item.Quantity, item.Price)
+		`, itemID, orderID, item.Product.ID, item.Quantity, item.Product.Price)
 		if err != nil {
 			http.Error(w, "Failed to create order items", http.StatusInternalServerError)
 			return
@@ -182,12 +202,15 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Capture total before clearing
-	finalTotal := cart.FinalTotal
-
-	// Clear the cart
-	cart.Items = []models.CartItem{}
-	cart.CalculateTotals()
+	// Send Email if Company is true
+	if form.Company {
+		go func() {
+			smtpService := smtp.NewSmtpService()
+			subject := fmt.Sprintf("Новый заказ %s", orderNumber)
+			body := fmt.Sprintf("Здравствуйте, %s!\n\nВаш заказ %s успешно оформлен.\nСумма: %d\n\nСпасибо за покупку!", form.Name, orderNumber, finalTotal)
+			_ = smtpService.SendEmail(form.Email, subject, body)
+		}()
+	}
 
 	response := map[string]interface{}{
 		"success":     true,

@@ -71,6 +71,13 @@ definitions:
       stock:
         type: integer
     type: object
+  models.CartItemRequest:
+    properties:
+      product_id:
+        type: string
+      quantity:
+        type: integer
+    type: object
   models.Category:
     properties:
       id:
@@ -90,8 +97,16 @@ definitions:
         type: string
       bin:
         type: string
+      carts:
+        description: New field
+        items:
+          $ref: '#/definitions/models.CartItemRequest'
+        type: array
       comment:
         type: string
+      company:
+        description: New field
+        type: boolean
       companyName:
         type: string
       customerType:
@@ -560,8 +575,6 @@ paths:
       responses:
         "204":
           description: No Content
-          schema:
-            type: string
         "404":
           description: Category not found
           schema:
