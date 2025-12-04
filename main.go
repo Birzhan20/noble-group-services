@@ -5,40 +5,56 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/api/v1"
-	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/core"
-	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/middleware"
-
-	_ "github.com/GoogleCloudPlatform/golang-samples/run/helloworld/docs"
+	v1 "noble-group-services/api/v1"
+	"noble-group-services/core"
+	"noble-group-services/crud"
+	_ "noble-group-services/docs" // Swagger docs
 )
 
+// @title Noble Group Services API
+// @version 1.0
+// @description API for Noble Group Services e-commerce platform.
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name API Support
+// @contact.url http://www.swagger.io/support
+// @contact.email support@swagger.io
+
+// @license.name Apache 2.0
+// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host localhost:8080
+// @BasePath /
+
 func main() {
-	// Initialize the database
-	// Read connection string from environment variable, fallback to default for local dev
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		connStr = "postgres://user:password@localhost/dbname?sslmode=disable"
-		log.Println("DATABASE_URL not set, using default connection string")
+	// Database connection string
+	// Default to the one in comments or environment variable
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		dsn = "postgres://postgres:password@localhost:5432/noble"
 	}
 
-	if err := core.InitDB(connStr); err != nil {
-		log.Printf("Failed to connect to database: %v", err)
+	// Initialize Database
+	if err := core.InitDB(dsn); err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
 	}
+	defer core.CloseDB()
 
-	// Create a new ServeMux and apply the CORS middleware
+	// Set DB for CRUD operations
+	crud.SetDB(core.DB)
+
+	// Setup Router
 	mux := http.NewServeMux()
-
-	// Setup the API routes using the created mux
 	v1.SetupRoutes(mux)
 
-	httpserver := &http.Server{
-		Addr:    ":3000",
-		Handler: middleware.CORSMiddleware(mux),
+	// Start Server
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
 
-	// Start the server
-	log.Println("Starting server on :3000")
-	if err := httpserver.ListenAndServe(); err != nil {
-		log.Fatal(err)
+	log.Printf("Server starting on port %s", port)
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
+		log.Fatalf("Server failed: %v", err)
 	}
 }

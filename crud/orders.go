@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/models"
+	"noble-group-services/models"
 )
 
 // ValidationErrorDetail represents a single field validation error.
@@ -27,7 +27,27 @@ type ValidationErrorResponse struct {
 	Details []ValidationErrorDetail `json:"details"`
 }
 
-// OrdersHandler handles order-related requests.
+// OrdersHandler handles POST /orders
+func OrdersHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		CreateOrder(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// OrderItemHandler handles DELETE /orders/{id}
+func OrderItemHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodDelete:
+		DeleteOrder(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// CreateOrder godoc
 // @Summary Place a new order
 // @Description Place a new order with the items in the cart
 // @Tags orders
@@ -37,12 +57,7 @@ type ValidationErrorResponse struct {
 // @Success 201 {object} map[string]interface{}
 // @Failure 400 {object} ValidationErrorResponse
 // @Router /orders [post]
-func OrdersHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func CreateOrder(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 	if sessionID == "" {
 		http.Error(w, "X-Session-ID header is required", http.StatusBadRequest)
@@ -126,6 +141,47 @@ func OrdersHandler(w http.ResponseWriter, r *http.Request) {
 	orderID := uuid.New().String()
 	orderNumber := fmt.Sprintf("ORD-%d-%06d", time.Now().Year(), rand.Intn(1000000))
 
+	// Start transaction
+	tx, err := db.Beginx()
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	// Insert Order
+	_, err = tx.Exec(`
+		INSERT INTO orders (
+			id, order_number, customer_name, customer_phone, customer_email, address,
+			customer_type, company_name, bin, comment, total, status, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+	`,
+		orderID, orderNumber, form.Name, form.Phone, form.Email, form.Address,
+		form.CustomerType, form.CompanyName, form.BIN, form.Comment, cart.FinalTotal, "new", time.Now(),
+	)
+	if err != nil {
+		http.Error(w, "Failed to create order", http.StatusInternalServerError)
+		return
+	}
+
+	// Insert Order Items
+	for _, item := range cart.Items {
+		itemID := uuid.New().String()
+		_, err = tx.Exec(`
+			INSERT INTO order_items (id, order_id, product_id, quantity, price)
+			VALUES ($1, $2, $3, $4, $5)
+		`, itemID, orderID, item.ID, item.Quantity, item.Price)
+		if err != nil {
+			http.Error(w, "Failed to create order items", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "Failed to commit order", http.StatusInternalServerError)
+		return
+	}
+
 	// Capture total before clearing
 	finalTotal := cart.FinalTotal
 
@@ -143,4 +199,36 @@ func OrdersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
+}
+
+// DeleteOrder godoc
+// @Summary Delete order
+// @Description Delete an order by ID
+// @Tags orders
+// @Produce json
+// @Param id path string true "Order ID"
+// @Success 204 {string} string "No Content"
+// @Failure 404 {string} string "Order not found"
+// @Router /orders/{id} [delete]
+func DeleteOrder(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/orders/")
+	if id == "" {
+		http.Error(w, "ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Due to ON DELETE CASCADE in schema, deleting from orders table is sufficient
+	result, err := db.Exec(`DELETE FROM orders WHERE id = $1`, id)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

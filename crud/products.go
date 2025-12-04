@@ -3,220 +3,287 @@ package crud
 import (
 	"encoding/json"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/models"
+	"github.com/google/uuid"
+
+	"noble-group-services/models"
+
+	"github.com/jmoiron/sqlx"
 )
 
-// products holds our mock database of products.
-// Since this is a static map and we only read from it, it is thread-safe for concurrent reads.
-var products = map[string]models.Product{
-	"1": {
-		ID:           "1",
-		Name:         "Респиратор 3M 7502",
-		Category:     "Респираторы",
-		Manufacturer: "3M",
-		Availability: "in-stock",
-		Price:        12500,
-		Description:  "Полумаска 3M™ серии 7500 – это уникальное сочетание плотного прилегания, мягкости и комфорта. Новая конструкция клапана выдоха обеспечивает повышенную износоустойчивость и простоту поддержания чистоты.",
-		Features:     []string{"Материал: Силикон", "Тип: Полумаска", "Защита: Газы и пары"},
-		Stock:        100,
-		Rating:       4.8,
-		Reviews:      124,
-		SKU:          "3M-7502",
-		Image:        "https://noble-group.vercel.app/images/product1.jpg",
-	},
-	"2": {
-		ID:           "2",
-		Name:         "Перчатки Ansell HyFlex",
-		Category:     "Перчатки",
-		Manufacturer: "Ansell",
-		Availability: "in-stock",
-		Price:        5000,
-		Description:  "Перчатки HyFlex® 11-800 обеспечивают легендарную точность манипуляций и комфорт.",
-		Features:     []string{"Материал: Нитрил", "Размер: 9", "Защита: Механическая"},
-		Stock:        200,
-		Rating:       4.5,
-		Reviews:      80,
-		SKU:          "AN-11-800",
-		Image:        "https://noble-group.vercel.app/images/product2.jpg",
-	},
-	"3": {
-		ID:           "3",
-		Name:         "Каска MSA V-Gard",
-		Category:     "Каски",
-		Manufacturer: "MSA Safety",
-		Availability: "pre-order",
-		Price:        8000,
-		Description:  "Защитная каска V-Gard® из полиэтилена высокой плотности (HDPE) с УФ-ингибитором.",
-		Features:     []string{"Материал: HDPE", "Вентиляция: Нет", "Цвет: Белый"},
-		Stock:        0,
-		Rating:       4.7,
-		Reviews:      50,
-		SKU:          "MSA-VGARD",
-		Image:        "https://noble-group.vercel.app/images/product3.jpg",
-	},
-	"4": {
-		ID:           "4",
-		Name:         "Очки Uvex Skyper",
-		Category:     "Очки",
-		Manufacturer: "Uvex",
-		Availability: "in-stock",
-		Price:        3500,
-		Description:  "Открытые очки с панорамным обзором и отличной защитой.",
-		Features:     []string{"Покрытие: supravision", "Цвет линз: Прозрачный", "Защита от УФ: Да"},
-		Stock:        150,
-		Rating:       4.6,
-		Reviews:      95,
-		SKU:          "UV-9195",
-		Image:        "https://noble-group.vercel.app/images/product4.jpg",
-	},
-	"5": {
-		ID:           "5",
-		Name:         "Костюм Tyvek Classic",
-		Category:     "Спецодежда",
-		Manufacturer: "Tyvek",
-		Availability: "in-stock",
-		Price:        15000,
-		Description:  "Комбинезон Tyvek® Classic Xpert обеспечивает превосходную защиту от твердых частиц.",
-		Features:     []string{"Тип: Комбинезон", "Размер: L", "Защита: Химзащита"},
-		Stock:        50,
-		Rating:       4.9,
-		Reviews:      200,
-		SKU:          "TY-CLASSIC",
-		Image:        "https://noble-group.vercel.app/images/product5.jpg",
-	},
+var db *sqlx.DB // будет проинициализировано в main.go
+
+// ProductsHandler handles GET /products and POST /products
+func ProductsHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		GetProducts(w, r)
+	case http.MethodPost:
+		CreateProduct(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
-// ProductsHandler handles requests to list products.
-// It supports filtering by category, manufacturer, search term, and availability.
-// It also supports pagination.
-//
-// @Summary Get a list of products
-// @Description Get a list of products with optional filters
+// ProductItemHandler handles GET, PUT, DELETE /products/{id}
+func ProductItemHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		GetProduct(w, r)
+	case http.MethodPut:
+		UpdateProduct(w, r)
+	case http.MethodDelete:
+		DeleteProduct(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// GetProducts godoc
+// @Summary Get list of products
+// @Description Get a list of products with optional filtering
 // @Tags products
-// @Accept  json
-// @Produce  json
-// @Param category query string false "Category to filter by"
-// @Param manufacturer query string false "Manufacturer to filter by"
-// @Param search query string false "Search term to filter by name"
-// @Param inStockOnly query boolean false "Filter for products in stock only"
-// @Param page query int false "Page number for pagination"
-// @Param limit query int false "Number of items per page"
+// @Produce json
+// @Param category query string false "Category Slug"
+// @Param manufacturer query string false "Manufacturer Slug"
+// @Param search query string false "Search term"
+// @Param inStockOnly query bool false "Only in stock"
+// @Param page query int false "Page number" default(1)
+// @Param limit query int false "Items per page" default(20)
 // @Success 200 {array} models.Product
 // @Router /products [get]
-func ProductsHandler(w http.ResponseWriter, r *http.Request) {
-	// We use a channel to communicate the result from the goroutine back to the main handler.
-	productsChan := make(chan []models.Product)
+func GetProducts(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
 
-	// Run the filtering logic in a separate goroutine.
-	go func() {
-		// 1. Parse Query Parameters
-		query := r.URL.Query()
-		category := query.Get("category")
-		manufacturer := query.Get("manufacturer")
-		search := strings.ToLower(query.Get("search"))
-		inStockOnly := query.Get("inStockOnly") == "true"
+	categorySlug := query.Get("category")
+	manufacturerSlug := query.Get("manufacturer")
+	search := strings.ToLower(query.Get("search"))
+	inStockOnly := query.Get("inStockOnly") == "true"
 
-		// 2. Filter Products
-		var filteredProducts []models.Product
+	page, _ := strconv.Atoi(query.Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
 
-		for _, p := range products {
-			// Check Category
-			if category != "" && p.Category != category {
-				continue
-			}
-			// Check Manufacturer
-			if manufacturer != "" && p.Manufacturer != manufacturer {
-				continue
-			}
-			// Check Search Term (Name)
-			if search != "" && !strings.Contains(strings.ToLower(p.Name), search) {
-				continue
-			}
-			// Check Availability
-			if inStockOnly && p.Availability != "in-stock" {
-				continue
-			}
+	var products []models.Product
 
-			filteredProducts = append(filteredProducts, p)
-		}
+	q := `
+		SELECT 
+			p.id, p.name, p.slug, p.price, p.old_price, p.description, p.features, p.image, 
+			p.stock, p.rating, p.reviews_count, p.sku, p.availability,
+			m.id AS "manufacturer.id", m.name AS "manufacturer.name", m.slug AS "manufacturer.slug", m.logo AS "manufacturer.logo",
+			c.id AS "category.id", c.name AS "category.name", c.slug AS "category.slug"
+		FROM products p
+		LEFT JOIN manufacturers m ON p.manufacturer_id = m.id
+		LEFT JOIN categories c ON p.category_id = c.id
+		WHERE true
+	`
 
-		// Sort filtered products by ID for deterministic pagination
-		sort.Slice(filteredProducts, func(i, j int) bool {
-			return filteredProducts[i].ID < filteredProducts[j].ID
-		})
+	args := []interface{}{}
+	argID := 1
 
-		// 3. Handle Pagination
-		page, _ := strconv.Atoi(query.Get("page"))
-		if page < 1 {
-			page = 1
-		}
-		limit, _ := strconv.Atoi(query.Get("limit"))
-		if limit <= 0 {
-			limit = 20
-		}
+	if categorySlug != "" {
+		q += ` AND c.slug = $` + strconv.Itoa(argID)
+		args = append(args, categorySlug)
+		argID++
+	}
+	if manufacturerSlug != "" {
+		q += ` AND m.slug = $` + strconv.Itoa(argID)
+		args = append(args, manufacturerSlug)
+		argID++
+	}
+	if search != "" {
+		q += ` AND LOWER(p.name) LIKE $` + strconv.Itoa(argID)
+		args = append(args, "%"+search+"%")
+		argID++
+	}
+	if inStockOnly {
+		q += ` AND p.stock > 0 AND p.availability = 'in_stock'`
+	}
 
-		startIndex := (page - 1) * limit
-		endIndex := startIndex + limit
+	q += ` ORDER BY p.name LIMIT $` + strconv.Itoa(argID) + ` OFFSET $` + strconv.Itoa(argID+1)
+	args = append(args, limit, offset)
 
-		// Adjust indices to be within bounds
-		total := len(filteredProducts)
-		if startIndex >= total {
-			productsChan <- []models.Product{}
-			return
-		}
-		if endIndex > total {
-			endIndex = total
-		}
-
-		productsChan <- filteredProducts[startIndex:endIndex]
-	}()
-
-	productList := <-productsChan
+	err := db.Select(&products, q, args...)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(productList)
+	json.NewEncoder(w).Encode(products)
 }
 
-// ProductByIDHandler handles requests for a single product by its ID.
-//
-// @Summary Get a single product by its ID
-// @Description Get a single product by its ID
+// CreateProduct godoc
+// @Summary Create a product
+// @Description Create a new product
 // @Tags products
-// @Accept  json
-// @Produce  json
+// @Accept json
+// @Produce json
+// @Param product body models.Product true "Product"
+// @Success 201 {object} models.Product
+// @Failure 400 {string} string "Invalid request"
+// @Router /products [post]
+func CreateProduct(w http.ResponseWriter, r *http.Request) {
+	var p models.Product
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if p.Name == "" || p.Slug == "" || p.ManufacturerID == "" || p.CategoryID == "" {
+		http.Error(w, "Name, Slug, ManufacturerID, and CategoryID are required", http.StatusBadRequest)
+		return
+	}
+
+	p.ID = uuid.New().String()
+	if p.Features == nil {
+		p.Features = models.JSONStringArray{}
+	}
+	if p.Image == nil {
+		p.Image = models.JSONStringArray{}
+	}
+
+	_, err := db.Exec(`
+		INSERT INTO products (
+			id, name, slug, manufacturer_id, category_id, price, old_price, 
+			description, features, image, stock, rating, reviews_count, sku, availability
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+	`, p.ID, p.Name, p.Slug, p.ManufacturerID, p.CategoryID, p.Price, p.OldPrice,
+		p.Description, p.Features, p.Image, p.Stock, p.Rating, p.ReviewsCount, p.SKU, p.Availability)
+
+	if err != nil {
+		http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(p)
+}
+
+// GetProduct godoc
+// @Summary Get product by ID
+// @Description Get details of a specific product
+// @Tags products
+// @Produce json
 // @Param id path string true "Product ID"
 // @Success 200 {object} models.Product
-// @Failure 404 {string} string "Not Found"
+// @Failure 404 {string} string "Product not found"
 // @Router /products/{id} [get]
-func ProductByIDHandler(w http.ResponseWriter, r *http.Request) {
-	// Extract ID from URL path
-	id := strings.TrimPrefix(r.URL.Path, "/api/v1/products/")
+func GetProduct(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/products/")
+	if id == "" {
+		http.NotFound(w, r)
+		return
+	}
 
-	// Channel to receive the found product
-	productChan := make(chan *models.Product)
+	var product models.Product
+	err := db.Get(&product, `
+		SELECT 
+			p.*, 
+			m.id AS "manufacturer.id", m.name AS "manufacturer.name", m.slug AS "manufacturer.slug", m.logo AS "manufacturer.logo",
+			c.id AS "category.id", c.name AS "category.name", c.slug AS "category.slug"
+		FROM products p
+		LEFT JOIN manufacturers m ON p.manufacturer_id = m.id
+		LEFT JOIN categories c ON p.category_id = c.id
+		WHERE p.id = $1
+	`, id)
 
-	// Look up the product in a goroutine
-	go func() {
-		if p, ok := products[id]; ok {
-			productChan <- &p
-		} else {
-			productChan <- nil
-		}
-	}()
-
-	// Wait for result
-	product := <-productChan
-
-	// If product is nil, it wasn't found
-	if product == nil {
+	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(product)
+}
+
+// UpdateProduct godoc
+// @Summary Update product
+// @Description Update an existing product
+// @Tags products
+// @Accept json
+// @Produce json
+// @Param id path string true "Product ID"
+// @Param product body models.Product true "Product"
+// @Success 200 {object} models.Product
+// @Failure 400 {string} string "Invalid request"
+// @Failure 404 {string} string "Product not found"
+// @Router /products/{id} [put]
+func UpdateProduct(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/products/")
+	if id == "" {
+		http.Error(w, "ID required", http.StatusBadRequest)
+		return
+	}
+
+	var p models.Product
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	p.ID = id
+	if p.Features == nil {
+		p.Features = models.JSONStringArray{}
+	}
+	if p.Image == nil {
+		p.Image = models.JSONStringArray{}
+	}
+
+	_, err := db.Exec(`
+		UPDATE products SET 
+			name=$1, slug=$2, manufacturer_id=$3, category_id=$4, price=$5, old_price=$6, 
+			description=$7, features=$8, image=$9, stock=$10, rating=$11, reviews_count=$12, 
+			sku=$13, availability=$14
+		WHERE id=$15
+	`, p.Name, p.Slug, p.ManufacturerID, p.CategoryID, p.Price, p.OldPrice,
+		p.Description, p.Features, p.Image, p.Stock, p.Rating, p.ReviewsCount, p.SKU, p.Availability, p.ID)
+
+	if err != nil {
+		http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(p)
+}
+
+// DeleteProduct godoc
+// @Summary Delete product
+// @Description Delete a product
+// @Tags products
+// @Produce json
+// @Param id path string true "Product ID"
+// @Success 204 {string} string "No Content"
+// @Failure 404 {string} string "Product not found"
+// @Router /products/{id} [delete]
+func DeleteProduct(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/products/")
+	if id == "" {
+		http.Error(w, "ID required", http.StatusBadRequest)
+		return
+	}
+
+	result, err := db.Exec(`DELETE FROM products WHERE id = $1`, id)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

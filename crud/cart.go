@@ -1,3 +1,4 @@
+// crud/cart.go
 package crud
 
 import (
@@ -8,205 +9,301 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/GoogleCloudPlatform/golang-samples/run/helloworld/models"
+	"noble-group-services/models"
 )
 
-// Using a map for mock cart data
+// Глобальное хранилище корзин (в памяти, для гостей)
 var carts = make(map[string]*models.Cart)
-
-// cartMu protects access to the carts map AND the individual cart structs.
 var cartMu sync.RWMutex
 
-// CartResponse represents the JSON response for the cart.
+// CartResponse — ответ для фронта
 type CartResponse struct {
 	Items []models.CartItem `json:"items"`
-	Total int              `json:"total"`
-	Count int              `json:"count"`
+	Total int               `json:"total"`
+	Count int               `json:"count"` // ← теперь общее количество товаров!
 }
 
-// CartHandler handles cart-related requests.
-// @Summary Get or update the cart
-// @Description Get the current cart, add an item, or clear the cart.
-// @Tags cart
-// @Accept  json
-// @Produce  json
-// @Param body body object{productId=string,quantity=integer} false "Add to cart request"
-// @Success 200 {object} CartResponse
-// @Failure 400 {string} string "Bad Request"
-// @Failure 404 {string} string "Not Found"
-// @Router /cart [get]
-// @Router /cart [post]
-// @Router /cart [delete]
+// CartHandler — GET /cart, POST /cart, DELETE /cart
 func CartHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		GetCart(w, r)
+	case http.MethodPost:
+		AddToCart(w, r)
+	case http.MethodDelete:
+		ClearCart(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// GetCart godoc
+// @Summary Get current cart
+// @Description Get the current session's cart
+// @Tags cart
+// @Produce json
+// @Param X-Session-ID header string false "Session ID"
+// @Success 200 {object} CartResponse
+// @Router /cart [get]
+func GetCart(w http.ResponseWriter, r *http.Request) {
+	sessionID := getSessionID(w, r)
+
+	cartMu.RLock()
+	cart := getCartUnsafe(sessionID)
+	response := CartResponse{
+		Items: cart.Items,
+		Total: cart.FinalTotal,
+		Count: cart.Count,
+	}
+	cartMu.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// AddToCart godoc
+// @Summary Add item to cart
+// @Description Add a product to the cart
+// @Tags cart
+// @Accept json
+// @Produce json
+// @Param X-Session-ID header string false "Session ID"
+// @Param request body object{productId=string,quantity=int} true "Product ID and Quantity"
+// @Success 200 {object} CartResponse
+// @Failure 400 {string} string "Invalid request"
+// @Failure 404 {string} string "Product not found"
+// @Router /cart [post]
+func AddToCart(w http.ResponseWriter, r *http.Request) {
+	sessionID := getSessionID(w, r)
+
+	var req struct {
+		ProductID string `json:"productId"`
+		Quantity  *int   `json:"quantity,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.ProductID == "" {
+		http.Error(w, "productId is required", http.StatusBadRequest)
+		return
+	}
+
+	qty := 1
+	if req.Quantity != nil && *req.Quantity > 0 {
+		qty = *req.Quantity
+	}
+
+	// Загружаем товар из БД
+	var product models.Product
+	err := db.Get(&product, `
+		SELECT 
+			p.id, p.name, p.slug, p.price, p.old_price, p.description, 
+			p.features, p.image, p.stock, p.sku, p.availability,
+			m.id AS "manufacturer.id", m.name AS "manufacturer.name", m.slug AS "manufacturer.slug", m.logo AS "manufacturer.logo",
+			c.id AS "category.id", c.name AS "category.name", c.slug AS "category.slug"
+		FROM products p
+		LEFT JOIN manufacturers m ON p.manufacturer_id = m.id
+		LEFT JOIN categories c ON p.category_id = c.id
+		WHERE p.id = $1
+	`, req.ProductID)
+
+	if err != nil {
+		http.Error(w, "Product not found", http.StatusNotFound)
+		return
+	}
+
+	if product.Stock < qty {
+		http.Error(w, "Not enough stock", http.StatusBadRequest)
+		return
+	}
+
+	cartMu.Lock()
+	cart := getCartUnsafe(sessionID)
+	found := false
+	for i := range cart.Items {
+		if cart.Items[i].ID == req.ProductID {
+			cart.Items[i].Quantity += qty
+			found = true
+			break
+		}
+	}
+	if !found {
+		cart.Items = append(cart.Items, models.CartItem{
+			Product:  product,
+			Quantity: qty,
+		})
+	}
+	cart.CalculateTotals()
+	cartMu.Unlock()
+
+	respondCart(w, cart)
+}
+
+// ClearCart godoc
+// @Summary Clear cart
+// @Description Remove all items from the cart
+// @Tags cart
+// @Produce json
+// @Param X-Session-ID header string false "Session ID"
+// @Success 200 {object} CartResponse
+// @Router /cart [delete]
+func ClearCart(w http.ResponseWriter, r *http.Request) {
+	sessionID := getSessionID(w, r)
+
+	cartMu.Lock()
+	cart := getCartUnsafe(sessionID)
+	cart.Items = []models.CartItem{}
+	cart.CalculateTotals()
+	cartMu.Unlock()
+
+	respondCart(w, cart)
+}
+
+func getSessionID(w http.ResponseWriter, r *http.Request) string {
 	sessionID := r.Header.Get("X-Session-ID")
 	if sessionID == "" {
 		sessionID = uuid.New().String()
 		w.Header().Set("X-Session-ID", sessionID)
 	}
+	return sessionID
+}
 
-	// Lock the entire operation to ensure thread safety
-	cartMu.Lock()
-	defer cartMu.Unlock()
-
-	cart := getCartUnsafe(sessionID)
-
-	switch r.Method {
-	case http.MethodGet:
-		// Handled by returning the cart at the end
-	case http.MethodPost:
-		var reqBody struct {
-			ProductID string `json:"productId"`
-			Quantity  *int   `json:"quantity,omitempty"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		quantity := 1
-		if reqBody.Quantity != nil && *reqBody.Quantity > 0 {
-			quantity = *reqBody.Quantity
-		}
-
-		// 'products' map is read-only safe, so no lock needed for it
-		// but we are holding the global lock anyway.
-		product, ok := products[reqBody.ProductID]
-		if !ok {
-			http.Error(w, "Product not found", http.StatusNotFound)
-			return
-		}
-
-		var found bool
-		for i := range cart.Items {
-			if cart.Items[i].ID == reqBody.ProductID {
-				cart.Items[i].Quantity += quantity
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			cart.Items = append(cart.Items, models.CartItem{Product: product, Quantity: quantity})
-		}
-
-	case http.MethodDelete:
-		cart.Items = []models.CartItem{}
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	cart.CalculateTotals()
-
+func respondCart(w http.ResponseWriter, cart *models.Cart) {
+	cartMu.RLock()
 	response := CartResponse{
 		Items: cart.Items,
 		Total: cart.FinalTotal,
-		Count: len(cart.Items),
+		Count: cart.Count,
 	}
+	cartMu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
-// CartItemHandler handles requests for a single item in the cart.
-// @Summary Update or delete an item in the cart
-// @Description Update the quantity of an item or delete it from the cart
-// @Tags cart
-// @Accept  json
-// @Produce  json
-// @Param productId path string true "Product ID"
-// @Param body body object{quantity=integer} false "Update quantity request"
-// @Success 200 {object} CartResponse
-// @Failure 400 {string} string "Bad Request"
-// @Failure 404 {string} string "Not Found"
-// @Router /cart/{productId} [patch]
-// @Router /cart/{productId} [delete]
+// CartItemHandler — PATCH /cart/{id}, DELETE /cart/{id}
 func CartItemHandler(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.Header.Get("X-Session-ID")
-	if sessionID == "" {
-		http.Error(w, "X-Session-ID header is required", http.StatusBadRequest)
-		return
-	}
-
-	productID := strings.TrimPrefix(r.URL.Path, "/api/v1/cart/")
-
-	cartMu.Lock()
-	defer cartMu.Unlock()
-
-	cart := getCartUnsafe(sessionID)
-
 	switch r.Method {
 	case http.MethodPatch:
-		var reqBody struct {
-			Quantity int `json:"quantity"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		if reqBody.Quantity <= 0 {
-			http.Error(w, "Quantity must be greater than 0", http.StatusBadRequest)
-			return
-		}
-
-		var found bool
-		for i := range cart.Items {
-			if cart.Items[i].ID == productID {
-				cart.Items[i].Quantity = reqBody.Quantity
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			http.Error(w, "Product not in cart", http.StatusNotFound)
-			return
-		}
-
+		UpdateCartItem(w, r)
 	case http.MethodDelete:
-		var found bool
-		for i, item := range cart.Items {
-			if item.ID == productID {
-				cart.Items = append(cart.Items[:i], cart.Items[i+1:]...)
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			http.Error(w, "Product not in cart", http.StatusNotFound)
-			return
-		}
-
+		RemoveCartItem(w, r)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// UpdateCartItem godoc
+// @Summary Update cart item quantity
+// @Description Update the quantity of a product in the cart
+// @Tags cart
+// @Accept json
+// @Produce json
+// @Param X-Session-ID header string false "Session ID"
+// @Param id path string true "Product ID"
+// @Param request body object{quantity=int} true "New Quantity"
+// @Success 200 {object} CartResponse
+// @Failure 400 {string} string "Invalid request"
+// @Failure 404 {string} string "Item not found"
+// @Router /cart/{id} [patch]
+func UpdateCartItem(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.Header.Get("X-Session-ID")
+	if sessionID == "" {
+		http.Error(w, "X-Session-ID required", http.StatusBadRequest)
+		return
+	}
+
+	productID := strings.TrimPrefix(r.URL.Path, "/cart/")
+	if productID == "" {
+		http.Error(w, "Product ID required", http.StatusBadRequest)
+		return
+	}
+
+	cartMu.Lock()
+	cart := getCartUnsafe(sessionID)
+	cartMu.Unlock()
+
+	var req struct {
+		Quantity int `json:"quantity"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Quantity <= 0 {
+		http.Error(w, "Invalid quantity", http.StatusBadRequest)
+		return
+	}
+
+	cartMu.Lock()
+	found := false
+	for i := range cart.Items {
+		if cart.Items[i].ID == productID {
+			cart.Items[i].Quantity = req.Quantity
+			found = true
+			break
+		}
+	}
+	if !found {
+		cartMu.Unlock()
+		http.Error(w, "Item not in cart", http.StatusNotFound)
+		return
+	}
+	cart.CalculateTotals()
+	cartMu.Unlock()
+
+	respondCart(w, cart)
+}
+
+// RemoveCartItem godoc
+// @Summary Remove item from cart
+// @Description Remove a product from the cart
+// @Tags cart
+// @Produce json
+// @Param X-Session-ID header string false "Session ID"
+// @Param id path string true "Product ID"
+// @Success 200 {object} CartResponse
+// @Failure 404 {string} string "Item not found"
+// @Router /cart/{id} [delete]
+func RemoveCartItem(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.Header.Get("X-Session-ID")
+	if sessionID == "" {
+		http.Error(w, "X-Session-ID required", http.StatusBadRequest)
+		return
+	}
+
+	productID := strings.TrimPrefix(r.URL.Path, "/cart/")
+	if productID == "" {
+		http.Error(w, "Product ID required", http.StatusBadRequest)
+		return
+	}
+
+	cartMu.Lock()
+	cart := getCartUnsafe(sessionID)
+
+	found := false
+	for i, item := range cart.Items {
+		if item.ID == productID {
+			cart.Items = append(cart.Items[:i], cart.Items[i+1:]...)
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		cartMu.Unlock()
+		http.Error(w, "Item not in cart", http.StatusNotFound)
 		return
 	}
 
 	cart.CalculateTotals()
+	cartMu.Unlock()
 
-	response := CartResponse{
-		Items: cart.Items,
-		Total: cart.FinalTotal,
-		Count: len(cart.Items),
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	respondCart(w, cart)
 }
 
-// getCart retrieves the cart for a given session ID.
-func getCart(sessionID string) *models.Cart {
-	cartMu.Lock()
-	defer cartMu.Unlock()
-	return getCartUnsafe(sessionID)
-}
-
-// getCartUnsafe retrieves the cart without locking. Caller must hold cartMu.
+// Вспомогательные функции
 func getCartUnsafe(sessionID string) *models.Cart {
 	if _, ok := carts[sessionID]; !ok {
-		// Initialize Items as empty slice to ensure JSON is [] not null
 		carts[sessionID] = &models.Cart{
 			Items: []models.CartItem{},
 		}

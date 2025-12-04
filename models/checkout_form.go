@@ -1,6 +1,5 @@
 package models
 
-// CheckoutForm represents the data submitted by the user during checkout.
 type CheckoutForm struct {
 	CustomerType string  `json:"customerType"`
 	Name         string  `json:"name"`

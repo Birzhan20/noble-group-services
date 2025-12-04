@@ -1,6 +1,5 @@
 package models
 
-// Cart represents a user's shopping cart.
 type Cart struct {
 	Items      []CartItem `json:"items"`
 	Total      int        `json:"total"`
@@ -8,7 +7,6 @@ type Cart struct {
 	FinalTotal int        `json:"finalTotal"`
 }
 
-// CalculateTotals calculates the total price and item count.
 func (c *Cart) CalculateTotals() {
 	var total, count int
 	for _, item := range c.Items {

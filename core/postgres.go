@@ -1,19 +1,20 @@
+// core/postgres.go
 package core
 
 import (
-	"database/sql"
-	"fmt"
+	"log"
+	"time"
 
-	_ "github.com/lib/pq"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jmoiron/sqlx"
 )
 
-// DB is the database connection.
-var DB *sql.DB
+var DB *sqlx.DB
 
-// InitDB initializes the database connection.
+// DATABASE URL "postgres://postgres:password@localhost:5432/noble"
 func InitDB(dataSourceName string) error {
 	var err error
-	DB, err = sql.Open("postgres", dataSourceName)
+	DB, err = sqlx.Open("pgx", dataSourceName)
 	if err != nil {
 		return err
 	}
@@ -22,6 +23,18 @@ func InitDB(dataSourceName string) error {
 		return err
 	}
 
-	fmt.Println("Successfully connected to the database!")
+	// Настройки пула соединений
+	DB.SetMaxOpenConns(25)
+	DB.SetMaxIdleConns(25)
+	DB.SetConnMaxLifetime(5 * time.Minute)
+
+	log.Println("Database connected successfully (sqlx + pgx)")
+	return nil
+}
+
+func CloseDB() error {
+	if DB != nil {
+		return DB.Close()
+	}
 	return nil
 }

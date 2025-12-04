@@ -9,7 +9,16 @@ const docTemplate = `{
     "info": {
         "description": "{{escape .Description}}",
         "title": "{{.Title}}",
-        "contact": {},
+        "termsOfService": "http://swagger.io/terms/",
+        "contact": {
+            "name": "API Support",
+            "url": "http://www.swagger.io/support",
+            "email": "support@swagger.io"
+        },
+        "license": {
+            "name": "Apache 2.0",
+            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        },
         "version": "{{.Version}}"
     },
     "host": "{{.Host}}",
@@ -17,33 +26,20 @@ const docTemplate = `{
     "paths": {
         "/cart": {
             "get": {
-                "description": "Get the current cart, add an item, or clear the cart.",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Get the current session's cart",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "cart"
                 ],
-                "summary": "Get or update the cart",
+                "summary": "Get current cart",
                 "parameters": [
                     {
-                        "description": "Add to cart request",
-                        "name": "body",
-                        "in": "body",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "productId": {
-                                    "type": "string"
-                                },
-                                "quantity": {
-                                    "type": "integer"
-                                }
-                            }
-                        }
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "X-Session-ID",
+                        "in": "header"
                     }
                 ],
                 "responses": {
@@ -51,24 +47,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/crud.CartResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 }
             },
             "post": {
-                "description": "Get the current cart, add an item, or clear the cart.",
+                "description": "Add a product to the cart",
                 "consumes": [
                     "application/json"
                 ],
@@ -78,12 +62,19 @@ const docTemplate = `{
                 "tags": [
                     "cart"
                 ],
-                "summary": "Get or update the cart",
+                "summary": "Add item to cart",
                 "parameters": [
                     {
-                        "description": "Add to cart request",
-                        "name": "body",
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "X-Session-ID",
+                        "in": "header"
+                    },
+                    {
+                        "description": "Product ID and Quantity",
+                        "name": "request",
                         "in": "body",
+                        "required": true,
                         "schema": {
                             "type": "object",
                             "properties": {
@@ -105,13 +96,13 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Bad Request",
+                        "description": "Invalid request",
                         "schema": {
                             "type": "string"
                         }
                     },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Product not found",
                         "schema": {
                             "type": "string"
                         }
@@ -119,33 +110,20 @@ const docTemplate = `{
                 }
             },
             "delete": {
-                "description": "Get the current cart, add an item, or clear the cart.",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Remove all items from the cart",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "cart"
                 ],
-                "summary": "Get or update the cart",
+                "summary": "Clear cart",
                 "parameters": [
                     {
-                        "description": "Add to cart request",
-                        "name": "body",
-                        "in": "body",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "productId": {
-                                    "type": "string"
-                                },
-                                "quantity": {
-                                    "type": "integer"
-                                }
-                            }
-                        }
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "X-Session-ID",
+                        "in": "header"
                     }
                 ],
                 "responses": {
@@ -153,56 +131,34 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/crud.CartResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 }
             }
         },
-        "/cart/{productId}": {
+        "/cart/{id}": {
             "delete": {
-                "description": "Update the quantity of an item or delete it from the cart",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Remove a product from the cart",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "cart"
                 ],
-                "summary": "Update or delete an item in the cart",
+                "summary": "Remove item from cart",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Product ID",
-                        "name": "productId",
-                        "in": "path",
-                        "required": true
+                        "description": "Session ID",
+                        "name": "X-Session-ID",
+                        "in": "header"
                     },
                     {
-                        "description": "Update quantity request",
-                        "name": "body",
-                        "in": "body",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "quantity": {
-                                    "type": "integer"
-                                }
-                            }
-                        }
+                        "type": "string",
+                        "description": "Product ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
@@ -212,14 +168,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/crud.CartResponse"
                         }
                     },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Item not found",
                         "schema": {
                             "type": "string"
                         }
@@ -227,7 +177,7 @@ const docTemplate = `{
                 }
             },
             "patch": {
-                "description": "Update the quantity of an item or delete it from the cart",
+                "description": "Update the quantity of a product in the cart",
                 "consumes": [
                     "application/json"
                 ],
@@ -237,19 +187,26 @@ const docTemplate = `{
                 "tags": [
                     "cart"
                 ],
-                "summary": "Update or delete an item in the cart",
+                "summary": "Update cart item quantity",
                 "parameters": [
                     {
                         "type": "string",
+                        "description": "Session ID",
+                        "name": "X-Session-ID",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
                         "description": "Product ID",
-                        "name": "productId",
+                        "name": "id",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "Update quantity request",
-                        "name": "body",
+                        "description": "New Quantity",
+                        "name": "request",
                         "in": "body",
+                        "required": true,
                         "schema": {
                             "type": "object",
                             "properties": {
@@ -268,13 +225,13 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Bad Request",
+                        "description": "Invalid request",
                         "schema": {
                             "type": "string"
                         }
                     },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Item not found",
                         "schema": {
                             "type": "string"
                         }
@@ -323,53 +280,87 @@ const docTemplate = `{
                 }
             }
         },
-        "/products": {
-            "get": {
-                "description": "Get a list of products with optional filters",
-                "consumes": [
+        "/orders/{id}": {
+            "delete": {
+                "description": "Delete an order by ID",
+                "produces": [
                     "application/json"
                 ],
+                "tags": [
+                    "orders"
+                ],
+                "summary": "Delete order",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Order ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Order not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/products": {
+            "get": {
+                "description": "Get a list of products with optional filtering",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "products"
                 ],
-                "summary": "Get a list of products",
+                "summary": "Get list of products",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Category to filter by",
+                        "description": "Category Slug",
                         "name": "category",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Manufacturer to filter by",
+                        "description": "Manufacturer Slug",
                         "name": "manufacturer",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Search term to filter by name",
+                        "description": "Search term",
                         "name": "search",
                         "in": "query"
                     },
                     {
                         "type": "boolean",
-                        "description": "Filter for products in stock only",
+                        "description": "Only in stock",
                         "name": "inStockOnly",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "Page number for pagination",
+                        "default": 1,
+                        "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "Number of items per page",
+                        "default": 20,
+                        "description": "Items per page",
                         "name": "limit",
                         "in": "query"
                     }
@@ -385,63 +376,9 @@ const docTemplate = `{
                         }
                     }
                 }
-            }
-        },
-        "/products/categories": {
-            "get": {
-                "description": "Get a list of all available product categories",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "products"
-                ],
-                "summary": "Get a list of product categories",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "array",
-                                "items": {
-                                    "type": "string"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/products/manufacturers": {
-            "get": {
-                "description": "Get a list of all available product manufacturers",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "products"
-                ],
-                "summary": "Get a list of product manufacturers",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "array",
-                                "items": {
-                                    "type": "string"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/products/{id}": {
-            "get": {
-                "description": "Get a single product by its ID",
+            },
+            "post": {
+                "description": "Create a new product",
                 "consumes": [
                     "application/json"
                 ],
@@ -451,7 +388,404 @@ const docTemplate = `{
                 "tags": [
                     "products"
                 ],
-                "summary": "Get a single product by its ID",
+                "summary": "Create a product",
+                "parameters": [
+                    {
+                        "description": "Product",
+                        "name": "product",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.Product"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/models.Product"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/products/categories": {
+            "get": {
+                "description": "Get a list of all product categories",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "categories"
+                ],
+                "summary": "Get all categories",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.Category"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Create a new product category",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "categories"
+                ],
+                "summary": "Create a category",
+                "parameters": [
+                    {
+                        "description": "Category",
+                        "name": "category",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.Category"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/models.Category"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/products/categories/{id}": {
+            "get": {
+                "description": "Get details of a specific category",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "categories"
+                ],
+                "summary": "Get category by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Category ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.Category"
+                        }
+                    },
+                    "404": {
+                        "description": "Category not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Update an existing category",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "categories"
+                ],
+                "summary": "Update category",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Category ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Category",
+                        "name": "category",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.Category"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.Category"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Category not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete a category",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "categories"
+                ],
+                "summary": "Delete category",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Category ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Category not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/products/manufacturers": {
+            "get": {
+                "description": "Get a list of all manufacturers",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "manufacturers"
+                ],
+                "summary": "Get all manufacturers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.Manufacturer"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Create a new manufacturer",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "manufacturers"
+                ],
+                "summary": "Create a manufacturer",
+                "parameters": [
+                    {
+                        "description": "Manufacturer",
+                        "name": "manufacturer",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.Manufacturer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/models.Manufacturer"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/products/manufacturers/{id}": {
+            "get": {
+                "description": "Get details of a specific manufacturer",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "manufacturers"
+                ],
+                "summary": "Get manufacturer by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Manufacturer ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.Manufacturer"
+                        }
+                    },
+                    "404": {
+                        "description": "Manufacturer not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Update an existing manufacturer",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "manufacturers"
+                ],
+                "summary": "Update manufacturer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Manufacturer ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Manufacturer",
+                        "name": "manufacturer",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.Manufacturer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.Manufacturer"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Manufacturer not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete a manufacturer",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "manufacturers"
+                ],
+                "summary": "Delete manufacturer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Manufacturer ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Manufacturer not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/products/{id}": {
+            "get": {
+                "description": "Get details of a specific product",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "products"
+                ],
+                "summary": "Get product by ID",
                 "parameters": [
                     {
                         "type": "string",
@@ -469,7 +803,91 @@ const docTemplate = `{
                         }
                     },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Product not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Update an existing product",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "products"
+                ],
+                "summary": "Update product",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Product ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Product",
+                        "name": "product",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.Product"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.Product"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Product not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete a product",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "products"
+                ],
+                "summary": "Delete product",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Product ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Product not found",
                         "schema": {
                             "type": "string"
                         }
@@ -483,6 +901,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "count": {
+                    "description": "← теперь общее количество товаров!",
                     "type": "integer"
                 },
                 "items": {
@@ -528,6 +947,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "category": {
+                    "$ref": "#/definitions/models.Category"
+                },
+                "categoryId": {
                     "type": "string"
                 },
                 "description": {
@@ -543,9 +965,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "image": {
-                    "type": "string"
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "manufacturer": {
+                    "$ref": "#/definitions/models.Manufacturer"
+                },
+                "manufacturerId": {
                     "type": "string"
                 },
                 "name": {
@@ -569,8 +997,31 @@ const docTemplate = `{
                 "sku": {
                     "type": "string"
                 },
+                "slug": {
+                    "type": "string"
+                },
                 "stock": {
                     "type": "integer"
+                }
+            }
+        },
+        "models.Category": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "image": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "parentId": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
                 }
             }
         },
@@ -603,6 +1054,23 @@ const docTemplate = `{
                 }
             }
         },
+        "models.Manufacturer": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "logo": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                }
+            }
+        },
         "models.Product": {
             "type": "object",
             "properties": {
@@ -610,6 +1078,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "category": {
+                    "$ref": "#/definitions/models.Category"
+                },
+                "categoryId": {
                     "type": "string"
                 },
                 "description": {
@@ -625,9 +1096,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "image": {
-                    "type": "string"
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "manufacturer": {
+                    "$ref": "#/definitions/models.Manufacturer"
+                },
+                "manufacturerId": {
                     "type": "string"
                 },
                 "name": {
@@ -648,6 +1125,9 @@ const docTemplate = `{
                 "sku": {
                     "type": "string"
                 },
+                "slug": {
+                    "type": "string"
+                },
                 "stock": {
                     "type": "integer"
                 }
@@ -658,12 +1138,12 @@ const docTemplate = `{
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "",
-	Host:             "",
-	BasePath:         "",
+	Version:          "1.0",
+	Host:             "localhost:8080",
+	BasePath:         "/",
 	Schemes:          []string{},
-	Title:            "",
-	Description:      "",
+	Title:            "Noble Group Services API",
+	Description:      "API for Noble Group Services e-commerce platform.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",
