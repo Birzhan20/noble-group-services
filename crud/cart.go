@@ -20,7 +20,7 @@ var cartMu sync.RWMutex
 type CartResponse struct {
 	Items []models.CartItem `json:"items"`
 	Total int               `json:"total"`
-	Count int               `json:"count"` // ← теперь общее количество товаров!
+	Count int               `json:"count"` // общее количество товаров
 }
 
 // CartHandler — GET /cart, POST /cart, DELETE /cart
@@ -137,9 +137,16 @@ func AddToCart(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	cart.CalculateTotals()
+	// Copy response data while still holding the lock
+	response := CartResponse{
+		Items: cart.Items,
+		Total: cart.FinalTotal,
+		Count: cart.Count,
+	}
 	cartMu.Unlock()
 
-	respondCart(w, cart)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // ClearCart godoc
@@ -157,9 +164,16 @@ func ClearCart(w http.ResponseWriter, r *http.Request) {
 	cart := getCartUnsafe(sessionID)
 	cart.Items = []models.CartItem{}
 	cart.CalculateTotals()
+	// Copy response data while still holding the lock
+	response := CartResponse{
+		Items: cart.Items,
+		Total: cart.FinalTotal,
+		Count: cart.Count,
+	}
 	cartMu.Unlock()
 
-	respondCart(w, cart)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func getSessionID(w http.ResponseWriter, r *http.Request) string {
@@ -169,19 +183,6 @@ func getSessionID(w http.ResponseWriter, r *http.Request) string {
 		w.Header().Set("X-Session-ID", sessionID)
 	}
 	return sessionID
-}
-
-func respondCart(w http.ResponseWriter, cart *models.Cart) {
-	cartMu.RLock()
-	response := CartResponse{
-		Items: cart.Items,
-		Total: cart.FinalTotal,
-		Count: cart.Count,
-	}
-	cartMu.RUnlock()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
 }
 
 // CartItemHandler — PATCH /cart/{id}, DELETE /cart/{id}
@@ -222,10 +223,6 @@ func UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cartMu.Lock()
-	cart := getCartUnsafe(sessionID)
-	cartMu.Unlock()
-
 	var req struct {
 		Quantity int `json:"quantity"`
 	}
@@ -235,6 +232,7 @@ func UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cartMu.Lock()
+	cart := getCartUnsafe(sessionID)
 	found := false
 	for i := range cart.Items {
 		if cart.Items[i].ID == productID {
@@ -249,9 +247,16 @@ func UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cart.CalculateTotals()
+	// Copy response data while still holding the lock
+	response := CartResponse{
+		Items: cart.Items,
+		Total: cart.FinalTotal,
+		Count: cart.Count,
+	}
 	cartMu.Unlock()
 
-	respondCart(w, cart)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // RemoveCartItem godoc
@@ -296,12 +301,20 @@ func RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cart.CalculateTotals()
+	// Copy response data while still holding the lock
+	response := CartResponse{
+		Items: cart.Items,
+		Total: cart.FinalTotal,
+		Count: cart.Count,
+	}
 	cartMu.Unlock()
 
-	respondCart(w, cart)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // Вспомогательные функции
+// NOTE: This function must be called with cartMu held
 func getCartUnsafe(sessionID string) *models.Cart {
 	if _, ok := carts[sessionID]; !ok {
 		carts[sessionID] = &models.Cart{
